@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include QMK_KEYBOARD_H
+#include "keymap_japanese.h"
+#include "print.h"
 
 uint8_t re_sel1 = 0;
 uint8_t re_sel2 = 1;
@@ -10,6 +12,50 @@ bool re_chg2 = false;
 uint32_t oled_flashing_timer;
 bool oled_flashing = false;
 
+const key_override_t at_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_2, JP_AT);
+const key_override_t circ_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_6, JP_CIRC);
+const key_override_t ampr_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_7, JP_AMPR);
+const key_override_t astr_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_8, JP_ASTR);
+const key_override_t lprn_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_9, JP_LPRN);
+const key_override_t rprn_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_0, JP_RPRN);
+const key_override_t unds_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_MINS, JP_UNDS);
+const key_override_t eql_key_override = ko_make_with_layers_and_negmods(0, KC_EQL, JP_EQL, ~0, (uint8_t)MOD_MASK_SHIFT);
+const key_override_t plus_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_EQL, JP_PLUS);
+const key_override_t lbrc_key_override = ko_make_with_layers_and_negmods(0, KC_LBRC, JP_LBRC, ~0, (uint8_t)MOD_MASK_SHIFT);
+const key_override_t lcbr_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_LBRC, JP_LCBR);
+const key_override_t rbrc_key_override = ko_make_with_layers_and_negmods(0, KC_RBRC, JP_RBRC, ~0, (uint8_t)MOD_MASK_SHIFT);
+const key_override_t rcbr_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_RBRC, JP_RCBR);
+const key_override_t bsls_key_override = ko_make_with_layers_and_negmods(0, KC_BSLS, JP_BSLS, ~0, (uint8_t)MOD_MASK_SHIFT);
+const key_override_t pipe_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_BSLS, JP_PIPE);
+const key_override_t coln_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_SCLN, JP_COLN);
+const key_override_t quot_key_override = ko_make_with_layers_and_negmods(0, KC_QUOT, JP_QUOT, ~0, (uint8_t)MOD_MASK_SHIFT);
+const key_override_t dquo_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_QUOT, JP_DQUO);
+const key_override_t grv_key_override = ko_make_with_layers_and_negmods(0, KC_GRV, JP_GRV, ~0, (uint8_t)MOD_MASK_SHIFT);
+const key_override_t tild_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_GRV, JP_TILD);
+
+const key_override_t** key_overrides = (const key_override_t * []){
+    &at_key_override,
+    &circ_key_override,
+    &ampr_key_override,
+    &astr_key_override,
+    &lprn_key_override,
+    &rprn_key_override,
+    &unds_key_override,
+    &eql_key_override,
+    &plus_key_override,
+    &lbrc_key_override,
+    &lcbr_key_override,
+    &rbrc_key_override,
+    &rcbr_key_override,
+    &bsls_key_override,
+    &pipe_key_override,
+    &coln_key_override,
+    &quot_key_override,
+    &dquo_key_override,
+    &grv_key_override,
+    &tild_key_override,
+    NULL
+};
 
 enum layer_names {
     _Default,
@@ -49,7 +95,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         KC_BSLS, KC_H,    KC_J,    KC_K,    KC_L,    KC_UP,  KC_QUOT,
         KC_DOT,  KC_N,    KC_M,    KC_SCLN, KC_LEFT, KC_DOWN,KC_RGHT,
         KC_ENT,  KC_SPC,  RGB_MOD, KC_RALT, KC_RCTL, KC_RSFT,
-        CC_RE1,  CC_RE2
+        CC_RE1,  CC_RE2,  CC_RE1,  CC_RE2
     ),
 
     [_Fn] = LAYOUT(
@@ -63,7 +109,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, _______, _______, _______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______,
-        KC_SPC,  KC_SPC
+        CC_RE1,  CC_RE2,  CC_RE1,  CC_RE2
     )
 };
 
@@ -75,22 +121,22 @@ led_config_t g_led_config = { {
     {14, 15, 16, 17, 18, 19, 20, NL, NL},
     {27, 26, 25, 24, 23, 22, 21, NL, NL},
     {NL, 28, 29, 30, 31, 32, 33, NL, NL},
-    {NL, NL, 40, 39, 38, 37, 36, 35, 34},
-    {NL, NL, 41, 42, 43, 44, 45, 46, 47},
-    {NL, NL, 54, 53, 52, 51, 50, 49, 48},
-    {NL, NL, 55, 56, 57, 58, 59, 60, 61},
-    {NL, NL, 67, 66, 65, 64, 63, 62, NL},
+    {34, 35, 36, 37, 38, 39, 40, NL, NL},
+    {47, 46, 45, 44, 43, 42, 41, NL, NL},
+    {48, 49, 50, 51, 52, 53, 54, NL, NL},
+    {61, 60, 59, 58, 57, 56, 55, NL, NL},
+    {NL, 62, 63, 64, 65, 66, 67, NL, NL},
 },{
-    {  0,  1 }, { 14,  0 }, { 36,  0 }, { 50,  1 }, { 64,  3 }, { 78,  4 }, { 92,  5 },
-    { 91, 18 }, { 77, 17 }, { 63, 16 }, { 49, 14 }, { 35, 13 }, { 15, 13 }, {  1, 14 },
-    {  3, 27 }, { 17, 26 }, { 34, 26 }, { 48, 27 }, { 62, 29 }, { 76, 30 }, { 90, 31 },
-    { 88, 31 }, { 74, 30 }, { 60, 29 }, { 46, 27 }, { 32, 26 }, { 18, 26 }, {  4, 27 },
-    {  6, 53 }, { 23, 52 }, { 41, 53 }, { 58, 55 }, { 71, 62 }, { 80, 64 },
-    { 224,  1 }, { 210,  0 }, { 188,  0 }, { 174,  1 }, { 160,  3 }, { 146,  4 }, { 132,  5 },
-    { 133, 18 }, { 147, 17 }, { 161, 16 }, { 175, 14 }, { 189, 13 }, { 194, 13 }, { 218, 14 },
-    { 220, 27 }, { 207, 26 }, { 191, 26 }, { 177, 27 }, { 163, 29 }, { 149, 30 }, { 135, 31 },
-    { 137, 44 }, { 150, 43 }, { 163, 42 }, { 176, 40 }, { 189, 39 }, { 206, 39 }, { 221, 40 },
-    { 203, 53 }, { 187, 52 }, { 169, 53 }, { 166, 55 }, { 152, 62 }, { 138, 64 }
+    {  0,  1 }, { 14,  0 }, { 36,  0 }, { 50,  1 }, { 64,  2 }, { 78,  3 }, { 92,  4 },
+    { 91, 17 }, { 77, 16 }, { 63, 15 }, { 49, 14 }, { 35, 13 }, { 15, 13 }, {  1, 14 },
+    {  3, 27 }, { 17, 26 }, { 34, 26 }, { 48, 27 }, { 62, 28 }, { 76, 29 }, { 90, 30 },
+    { 88, 43 }, { 74, 42 }, { 60, 41 }, { 46, 40 }, { 32, 39 }, { 18, 39 }, {  4, 40 },
+    {  6, 53 }, { 23, 52 }, { 41, 53 }, { 58, 54 }, { 71, 62 }, { 80, 64 },
+    { 224,  1 }, { 210,  0 }, { 188,  0 }, { 174,  1 }, { 160,  2 }, { 146,  3 }, { 132,  4 },
+    { 133, 17 }, { 147, 16 }, { 161, 15 }, { 175, 14 }, { 189, 13 }, { 194, 13 }, { 218, 14 },
+    { 220, 27 }, { 207, 26 }, { 191, 26 }, { 177, 27 }, { 163, 28 }, { 149, 29 }, { 135, 30 },
+    { 137, 43 }, { 150, 42 }, { 163, 41 }, { 176, 40 }, { 189, 39 }, { 206, 39 }, { 221, 40 },
+    { 203, 53 }, { 187, 52 }, { 169, 53 }, { 166, 54 }, { 152, 62 }, { 138, 64 }
 },{
     4, 4, 4, 4, 4, 4, 4,
     4, 4, 4, 4, 4, 4, 4,
@@ -101,12 +147,12 @@ led_config_t g_led_config = { {
     4, 4, 4, 4, 4, 4, 4,
     4, 4, 4, 4, 4, 4, 4,
     4, 4, 4, 4, 4, 4, 1,
-    4, 4, 4, 1, 1, 1
+    1, 1, 1, 4, 4, 4
 } };
 
 void matrix_init_user(void) {
-    writePinHigh(GP16);
-    writePinHigh(GP17);
+    setPinOutput(28);
+    writePinHigh(28);
 }
 
 void re_func(uint8_t index, bool clockwise) {
@@ -218,9 +264,16 @@ bool process_record_user(uint16_t keycode, keyrecord_t* record) {
         return true;
     }
 }
+void keyboard_post_init_user(void) {
+  // Customise these values to desired behaviour
+  debug_enable=true;
+  debug_matrix=true;
+  //debug_keyboard=true;
+  //debug_mouse=true;
+}
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
-    if (index == 0) {
+    if (index == 0 || index ==2) {
         if (re_chg1) {
             if (clockwise) {
                 re_sel1 = (re_sel1 + 1) % 8;
@@ -233,7 +286,8 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
             re_func(re_sel1, clockwise);
         }
     }
-    else if (index == 1) {
+    else if (index == 1 || index ==3) {
+
         if (re_chg2) {
             if (clockwise) {
                 re_sel2 = (re_sel2 + 1) % 8;
