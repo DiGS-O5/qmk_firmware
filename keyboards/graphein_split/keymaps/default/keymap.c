@@ -4,6 +4,7 @@
 #include QMK_KEYBOARD_H
 #include "keymap_japanese.h"
 #include "print.h"
+
 uint8_t re_sel1 = 0;
 uint8_t re_sel2 = 1;
 bool re_chg1 = false;
@@ -113,7 +114,6 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 
 #define NL NO_LED
-
 
 led_config_t g_led_config = { {
     { 0,  1,  2,  3,  4,  5,  6, NL, NL},
@@ -287,6 +287,7 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
         }
     }
     else if (index == 1 || index ==3) {
+
         if (re_chg2) {
             if (clockwise) {
                 re_sel2 = (re_sel2 + 1) % 8;
