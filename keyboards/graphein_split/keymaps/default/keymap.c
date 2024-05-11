@@ -4,6 +4,7 @@
 #include QMK_KEYBOARD_H
 #include "keymap_japanese.h"
 #include "print.h"
+#include "transactions.h"
 
 uint8_t re_sel1 = 0;
 uint8_t re_sel2 = 1;
@@ -57,6 +58,25 @@ const key_override_t** key_overrides = (const key_override_t * []){
     NULL
 };
 
+typedef struct _master_to_slave_t {
+    uint8_t re_sel1 :3;
+    uint8_t re_sel2 :3;
+    bool    re_chg1 :1;
+    bool    re_chg2 :1;
+} master_to_slave_t;
+
+master_to_slave_t master_to_slave;
+
+typedef union {
+  uint32_t raw;
+  struct {
+    uint8_t    re_config1 :3;
+    uint8_t    re_config2 :3;
+  };
+} user_config_t;
+
+user_config_t user_config;
+
 enum layer_names {
     _Default,
     _Fn,
@@ -64,7 +84,8 @@ enum layer_names {
 
 enum cc_keycodes {
     CC_RE1 = SAFE_RANGE,
-    CC_RE2
+    CC_RE2,
+    CC_SAVEE
 };
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
@@ -101,7 +122,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [_Fn] = LAYOUT(
         _______, KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5  , KC_F11,
         _______, _______, _______, _______, _______, _______, _______, 
-        _______, _______, _______, _______, _______, _______, _______,
+        _______, _______, CC_SAVEE,_______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______,
         KC_F12,  KC_F6,   KC_F7,   KC_F8,   KC_F9,   KC_F10,  _______,
@@ -251,12 +272,24 @@ bool process_record_user(uint16_t keycode, keyrecord_t* record) {
     case CC_RE1:
         if (record->event.pressed) {
             re_chg1 = !re_chg1;
+            if(!re_chg1){
+                 user_config.re_config1 = re_sel1;
+            }
         }
         return false;
         break;
     case CC_RE2:
         if (record->event.pressed) {
             re_chg2 = !re_chg2;
+            if(!re_chg2){
+                 user_config.re_config2 = re_sel2;
+            }
+        }
+        return false;
+        break;
+    case CC_SAVEE:
+        if (record->event.pressed) {
+            eeconfig_update_user(user_config.raw);
         }
         return false;
         break;
@@ -264,12 +297,47 @@ bool process_record_user(uint16_t keycode, keyrecord_t* record) {
         return true;
     }
 }
+void kb_sync_a_slave_handler(uint8_t in_buflen, const void* in_data, uint8_t out_buflen, void* out_data) {
+    const master_to_slave_t *m2s = (const master_to_slave_t*)in_data;
+    re_sel1 = m2s -> re_sel1;
+    re_sel2 = m2s -> re_sel2;
+    re_chg1 = m2s -> re_chg1;
+    re_chg2 = m2s -> re_chg2;
+}
+
 void keyboard_post_init_user(void) {
-  // Customise these values to desired behaviour
   debug_enable=true;
   debug_matrix=true;
   //debug_keyboard=true;
   //debug_mouse=true;
+
+  user_config.raw = eeconfig_read_user();
+  re_sel1 = user_config.re_config1;
+  re_sel2 = user_config.re_config2;
+  transaction_register_rpc(KEYBOARD_SYNC, kb_sync_a_slave_handler);
+}
+
+void housekeeping_task_user(void) {
+    if (is_keyboard_master()) {
+
+        bool needs_sync = false;
+        static uint16_t last_sync = false;
+
+        if (timer_elapsed32(last_sync) > 250) {
+            needs_sync = true;
+        }
+
+        // Perform the sync if requested
+        if (needs_sync) {
+             master_to_slave.re_sel1 = re_sel1;
+             master_to_slave.re_sel2 = re_sel2;
+             master_to_slave.re_chg1 = re_chg1;
+             master_to_slave.re_chg2 = re_chg2;
+            if (transaction_rpc_send(KEYBOARD_SYNC, sizeof(master_to_slave_t), &master_to_slave)) {
+                last_sync = timer_read32();
+            }
+        }
+    }
 }
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
