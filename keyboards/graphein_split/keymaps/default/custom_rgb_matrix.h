@@ -1,3 +1,6 @@
+// Copyright 2023 QMK
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 #pragma once
 
 void rgb_matrix_sethsv_wrap_around(uint16_t hue, uint16_t sat, uint16_t val);
