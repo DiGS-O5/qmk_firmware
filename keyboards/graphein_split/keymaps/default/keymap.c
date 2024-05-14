@@ -4,12 +4,16 @@
 #include QMK_KEYBOARD_H
 #include "keymap_japanese.h"
 #include "print.h"
+#include "transactions.h"
+#include "custom_rgb_matrix.h"
 
 uint8_t re_sel1 = 0;
 uint8_t re_sel2 = 1;
+uint8_t lit_sel = 0;
 bool re_chg1 = false;
 bool re_chg2 = false;
-uint32_t oled_flashing_timer;
+bool lit_chg = false;
+static uint32_t oled_flashing_timer;
 bool oled_flashing = false;
 
 const key_override_t at_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_2, JP_AT);
@@ -57,6 +61,27 @@ const key_override_t** key_overrides = (const key_override_t * []){
     NULL
 };
 
+typedef struct _master_to_slave_t {
+    uint8_t re_sel1 :3;
+    uint8_t re_sel2 :3;
+    bool    re_chg1 :1;
+    bool    re_chg2 :1;
+    uint8_t lit_sel :2;
+    bool    lit_chg :1;
+} master_to_slave_t;
+
+master_to_slave_t master_to_slave;
+
+typedef union {
+  uint32_t raw;
+  struct {
+    uint8_t    re_config1 :3;
+    uint8_t    re_config2 :3;
+  };
+} user_config_t;
+
+user_config_t user_config;
+
 enum layer_names {
     _Default,
     _Fn,
@@ -64,8 +89,12 @@ enum layer_names {
 
 enum cc_keycodes {
     CC_RE1 = SAFE_RANGE,
-    CC_RE2
+    CC_RE2,
+    CC_SAVEE,
+    CC_RSTEE,
+    CC_CHGLIT
 };
+
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
      /*
@@ -100,15 +129,15 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [_Fn] = LAYOUT(
         _______, KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5  , KC_F11,
-        _______, _______, _______, _______, _______, _______, _______, 
-        _______, _______, _______, _______, _______, _______, _______,
+        _______, _______, _______, _______, CC_RSTEE,_______, _______, 
+        _______, _______, CC_SAVEE,_______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______,
         KC_F12,  KC_F6,   KC_F7,   KC_F8,   KC_F9,   KC_F10,  _______,
         _______, _______, _______, _______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______, _______,
-        _______, _______, _______, _______, _______, _______,
+        _______, _______,CC_CHGLIT,_______, _______, _______,
         CC_RE1,  CC_RE2,  CC_RE1,  CC_RE2
     )
 };
@@ -250,13 +279,45 @@ bool process_record_user(uint16_t keycode, keyrecord_t* record) {
     switch (keycode) {
     case CC_RE1:
         if (record->event.pressed) {
-            re_chg1 = !re_chg1;
+            if(!lit_chg){
+                re_chg1 = !re_chg1;
+                if(!re_chg1){
+                     user_config.re_config1 = re_sel1;
+                }
+            }
         }
         return false;
         break;
     case CC_RE2:
         if (record->event.pressed) {
-            re_chg2 = !re_chg2;
+            if(!lit_chg){
+                re_chg2 = !re_chg2;
+                if(!re_chg2){
+                    user_config.re_config2 = re_sel2;
+                }
+            }
+        }
+        return false;
+        break;
+    case CC_SAVEE:
+        if (record->event.pressed) {
+            eeconfig_update_user(user_config.raw);
+            eeconfig_update_rgb_matrix();
+        }
+        return false;
+        break;
+    case CC_RSTEE:
+        if (record->event.pressed) {
+            eeconfig_update_rgb_matrix_default();
+        }
+        return false;
+        break;
+    case CC_CHGLIT:
+        if (record->event.pressed) {
+             lit_chg = !lit_chg;
+             if(lit_chg){
+                 lit_sel = 0;
+             }
         }
         return false;
         break;
@@ -264,12 +325,50 @@ bool process_record_user(uint16_t keycode, keyrecord_t* record) {
         return true;
     }
 }
+void kb_sync_a_slave_handler(uint8_t in_buflen, const void* in_data, uint8_t out_buflen, void* out_data) {
+    const master_to_slave_t *m2s = (const master_to_slave_t*)in_data;
+    re_sel1 = m2s -> re_sel1;
+    re_sel2 = m2s -> re_sel2;
+    re_chg1 = m2s -> re_chg1;
+    re_chg2 = m2s -> re_chg2;
+    lit_sel = m2s -> lit_sel;
+    lit_chg = m2s -> lit_chg;
+}
+
 void keyboard_post_init_user(void) {
-  // Customise these values to desired behaviour
   debug_enable=true;
   debug_matrix=true;
   //debug_keyboard=true;
   //debug_mouse=true;
+
+  user_config.raw = eeconfig_read_user();
+  re_sel1 = user_config.re_config1;
+  re_sel2 = user_config.re_config2;
+  transaction_register_rpc(KEYBOARD_SYNC, kb_sync_a_slave_handler);
+}
+
+void housekeeping_task_user(void) {
+    if (is_keyboard_master()) {
+
+        bool needs_sync = false;
+        static uint16_t last_sync = false;
+
+        if (timer_elapsed32(last_sync) > 250) {
+            needs_sync = true;
+        }
+
+        if (needs_sync) {
+             master_to_slave.re_sel1 = re_sel1;
+             master_to_slave.re_sel2 = re_sel2;
+             master_to_slave.re_chg1 = re_chg1;
+             master_to_slave.re_chg2 = re_chg2;
+             master_to_slave.lit_sel = lit_sel;
+             master_to_slave.lit_chg = lit_chg;
+            if (transaction_rpc_send(KEYBOARD_SYNC, sizeof(master_to_slave_t), &master_to_slave)) {
+                last_sync = timer_read32();
+            }
+        }
+    }
 }
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
@@ -280,6 +379,13 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
             }
             else {
                 re_sel1 = (re_sel1 + 7) % 8;
+            }
+        }else if(lit_chg){
+            if (clockwise) {
+                lit_sel = (lit_sel + 1) % 3;
+            }
+            else {
+                lit_sel = (lit_sel + 2) % 3;
             }
         }
         else {
@@ -294,6 +400,33 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
             }
             else {
                 re_sel2 = (re_sel2 + 7) % 8;
+            }
+        }else if(lit_chg){
+            if (clockwise) {
+                switch(lit_sel){
+                    case 0:
+                        rgb_matrix_wrap_around_hue(false);
+                        break;
+                    case 1:
+                        rgb_matrix_wrap_around_sat(false);
+                        break;
+                    case 2:
+                        rgb_matrix_wrap_around_val(false);
+                        break;
+                }
+            }
+            else {
+                switch(lit_sel){
+                    case 0:
+                        rgb_matrix_wrap_around_hue(true);
+                        break;
+                    case 1:
+                        rgb_matrix_wrap_around_sat(true);
+                        break;
+                    case 2:
+                        rgb_matrix_wrap_around_val(true);
+                        break;
+                }
             }
         }
         else {
@@ -342,80 +475,112 @@ bool oled_task_user(void) {
         oled_flashing_timer = timer_read();
         oled_flashing = !oled_flashing;
     }
-    oled_set_cursor(0, 0);
-    oled_write_P(PSTR("---------------------"), false);
-    oled_set_cursor(0, 1);
-    oled_write_P(PSTR("  Rotary Encoder 1   "), false);
-    oled_set_cursor(0, 2);
-    if (re_chg1 && oled_flashing) {
-         oled_write_P(PSTR("                     "), false);
+    oled_clear();
+    if (lit_chg){
+        char buffer[4];
+        oled_set_cursor(0, 0);
+        oled_write_P(PSTR("Sel : RE1 / Chg : RE2"), false);
+        oled_set_cursor(0, 1);
+        oled_write_P(PSTR("---------------------"), false);
+        oled_set_cursor(0, 2);
+        if(lit_sel == 0){
+            oled_write_P(PSTR("> "), false);
+        }else{
+            oled_write_P(PSTR("  "), false);
+        }
+        oled_write_P(PSTR("Hue        : "), false);
+        if(lit_sel == 0 && oled_flashing) {
+            oled_write_P(PSTR("   "), false);
+        }
+        else {
+            snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_hue());
+            oled_write(buffer, false);
+        }
+        oled_set_cursor(0, 3);
+        if(lit_sel == 1){
+            oled_write_P(PSTR("> "), false);
+        }else{
+            oled_write_P(PSTR("  "), false);
+        }
+        oled_write_P(PSTR("Saturation : "), false);
+        if(lit_sel == 1 && oled_flashing) {
+            oled_write_P(PSTR("   "), false);
+        }
+        else {
+            snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_sat());
+            oled_write(buffer, false);
+        }
+        oled_set_cursor(0, 4);
+        if(lit_sel == 2){
+            oled_write_P(PSTR("> "), false);
+        }else{
+            oled_write_P(PSTR("  "), false);
+        }
+        oled_write_P(PSTR("Brightness : "), false);
+        if(lit_sel == 2 && oled_flashing) {
+            oled_write_P(PSTR("   "), false);
+        }
+        else {
+            snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_val());
+            oled_write(buffer, false);
+        }
+        oled_set_cursor(0, 5);
+        oled_write_P(PSTR("---------------------"), false);
+        oled_set_cursor(0, 6);
+        oled_write_P(PSTR("Values scaled : 0-255"), false);
+        oled_set_cursor(0, 7);
+        oled_write_P(PSTR("Brightness Cap: "), false);
+        uint8_t max_brightness = RGB_MATRIX_MAXIMUM_BRIGHTNESS;
+        snprintf(buffer, sizeof(buffer), "%d", max_brightness);
+        oled_write(buffer, false);
+    }else{
+        oled_set_cursor(0, 0);
+        oled_write_P(PSTR("---------------------"), false);
+        oled_set_cursor(0, 1);
+        oled_write_P(PSTR("  Rotary Encoder 1   "), false);
+        oled_set_cursor(0, 2);
+        if (!re_chg1 || !oled_flashing) {
+            re_oled(re_sel1);
+        }
+        oled_set_cursor(0, 3);
+        oled_write_P(PSTR("---------------------"), false);
+        oled_set_cursor(0, 4);
+        oled_write_P(PSTR("  Rotary Encoder 2   "), false);
+        oled_set_cursor(0, 5);
+        if (!re_chg2 || !oled_flashing) {
+            re_oled(re_sel2);
+        }
+        oled_set_cursor(0, 6);
+        oled_write_P(PSTR("---------------------"), false);
     }
-    else {
-        re_oled(re_sel1);
-    }
-    oled_set_cursor(0, 3);
-    oled_write_P(PSTR("---------------------"), false);
-    oled_set_cursor(0, 4);
-    oled_write_P(PSTR("  Rotary Encoder 2   "), false);
-    oled_set_cursor(0, 5);
-    if (re_chg2 && oled_flashing) {
-        oled_write_P(PSTR("                     "), false);
-    }
-    else {
-        re_oled(re_sel2);
-    }
-    oled_set_cursor(0, 6);
-    oled_write_P(PSTR("---------------------"), false);
     return false;
 }
 
-void set_color(int index, uint8_t hsvred, uint8_t hsvgreen, uint8_t hsvblue) {
-    HSV hsv = (HSV){ hsvred, hsvgreen, hsvblue };
-    if (hsv.v > rgb_matrix_get_val()) {
-        hsv.v = rgb_matrix_get_val();
-    }
-    RGB rgb = hsv_to_rgb(hsv);
-    rgb_matrix_set_color(index, rgb.r, rgb.g, rgb.b);
-}
 
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
     if (rgb_matrix_get_mode() != 1) {
         return true;
     }
-
-    rgb_matrix_set_color_all(RGB_OFF);
-
+    uint8_t newSat;
     switch (get_highest_layer(layer_state | default_layer_state)) {
-    case _Default:
-        if (is_keyboard_left()) {
-            for (uint8_t i = 0; i < 34; i++) {
-                set_color(i, HSV_AZURE);
-            }
-        }
-        else {
-            for (uint8_t i = 34; i < 68; i++) {
-                set_color(i, HSV_AZURE);
-            }
-        }
-        break;
     case _Fn:
+        if (rgb_matrix_get_sat()<128){
+            newSat = 255;
+        }else{
+            newSat = 32;
+        }
         if (is_keyboard_left()) {
-            set_color(0, HSV_AZURE);
             for (uint8_t i = 1; i < 7; i++) {
-                set_color(i, HSV_CYAN);
+                set_color(i, rgb_matrix_get_hue(), newSat, rgb_matrix_get_val());
             }
-            for (uint8_t i = 7; i < 34; i++) {
-                set_color(i, HSV_AZURE);
-            }
+            set_color(9, rgb_matrix_get_hue(), newSat, rgb_matrix_get_val());
+            set_color(16, rgb_matrix_get_hue(), newSat, rgb_matrix_get_val());
         }
         else {
-            set_color(34, HSV_AZURE);
             for (uint8_t i = 35; i < 41; i++) {
-                set_color(i, HSV_CYAN);
+                set_color(i, rgb_matrix_get_hue(), newSat, rgb_matrix_get_val());
             }
-            for (uint8_t i = 41; i < 68; i++) {
-                set_color(i, HSV_AZURE);
-            }
+            set_color(65, rgb_matrix_get_hue(), newSat, rgb_matrix_get_val());
         }
         break;
     default:

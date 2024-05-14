@@ -13,3 +13,5 @@ KEY_OVERRIDE_ENABLE = yes
 EEPROM_ENABLE = yes
 EEPROM_DRIVER = wear_leveling
 WEAR_LEVELING_DRIVER = rp2040_flash
+
+SRC += custom_rgb_matrix.c
