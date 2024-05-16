@@ -23,6 +23,8 @@
 #define I2C1_SDA_PIN GP16
 #define I2C1_SCL_PIN GP17
 #define OLED_DISPLAY_128X64
+#define OLED_FONT_H "gs_glcdfont.c"
+#define OLED_BRIGHTNESS 0
 
 #define EE_HANDS
 #define SPLIT_TRANSACTION_IDS_KB KEYBOARD_SYNC

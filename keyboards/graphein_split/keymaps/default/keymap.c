@@ -13,8 +13,10 @@ uint8_t lit_sel = 0;
 bool re_chg1 = false;
 bool re_chg2 = false;
 bool lit_chg = false;
-static uint32_t oled_flashing_timer;
-bool oled_flashing = false;
+static uint16_t oled_init_timer = 0;
+static uint16_t oled_flashing_timer;
+static bool oled_init_timer_active = true;
+static bool oled_flashing = false;
 
 const key_override_t at_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_2, JP_AT);
 const key_override_t circ_key_override = ko_make_basic(MOD_MASK_SHIFT, KC_6, JP_CIRC);
@@ -468,90 +470,125 @@ void re_oled(uint8_t index) {
             break;
     }
 }
+static void render_logo(void) {
+    static const char PROGMEM gs_logo[] = {
+        0xDF, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF,
+        0xDF, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF,
+        0xDF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF,
+        0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0xDF, 
+        0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xDF, 
+        0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xCE, 0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xDF, 0x00
+    };
 
+    oled_write_P(gs_logo, false);
+}
+
+void oled_render_boot(bool bootloader) {
+    oled_clear();
+    render_logo();
+}
 
 bool oled_task_user(void) {
-    if (timer_elapsed(oled_flashing_timer) > 600) {
-        oled_flashing_timer = timer_read();
-        oled_flashing = !oled_flashing;
-    }
-    oled_clear();
-    if (lit_chg){
-        char buffer[4];
-        oled_set_cursor(0, 0);
-        oled_write_P(PSTR("Sel : RE1 / Chg : RE2"), false);
-        oled_set_cursor(0, 1);
-        oled_write_P(PSTR("---------------------"), false);
-        oled_set_cursor(0, 2);
-        if(lit_sel == 0){
-            oled_write_P(PSTR("> "), false);
-        }else{
-            oled_write_P(PSTR("  "), false);
+    if(oled_init_timer_active){
+        oled_clear();
+        if(oled_init_timer == 0){
+            oled_init_timer = timer_read();
         }
-        oled_write_P(PSTR("Hue        : "), false);
-        if(lit_sel == 0 && oled_flashing) {
-            oled_write_P(PSTR("   "), false);
+        if(timer_elapsed(oled_init_timer) > 2000) {
+            oled_set_brightness(255);
         }
-        else {
-            snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_hue());
+        if(timer_elapsed(oled_init_timer) < 5000) {
+            render_logo();
+            oled_set_cursor(0, 6);
+            oled_write_P(PSTR("---------------------"), false);
+            oled_set_cursor(0, 7);
+            oled_write_P(PSTR("Fn + H : Show Help"), false);
+        } else {
+            oled_init_timer_active = false;
+        }
+    }else {
+        if (timer_elapsed(oled_flashing_timer) > 600) {
+            oled_flashing_timer = timer_read();
+            oled_flashing = !oled_flashing;
+        }
+        oled_clear();
+        if (lit_chg){
+            char buffer[4];
+            oled_set_cursor(0, 0);
+            oled_write_P(PSTR("Sel : RE1 / Chg : RE2"), false);
+            oled_set_cursor(0, 1);
+            oled_write_P(PSTR("---------------------"), false);
+            oled_set_cursor(0, 2);
+            if(lit_sel == 0){
+                oled_write_P(PSTR("> "), false);
+            }else{
+                oled_write_P(PSTR("  "), false);
+            }
+            oled_write_P(PSTR("Hue        : "), false);
+            if(lit_sel == 0 && oled_flashing) {
+                oled_write_P(PSTR("   "), false);
+            }
+            else {
+                snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_hue());
+                oled_write(buffer, false);
+            }
+            oled_set_cursor(0, 3);
+            if(lit_sel == 1){
+                oled_write_P(PSTR("> "), false);
+            }else{
+                oled_write_P(PSTR("  "), false);
+            }
+            oled_write_P(PSTR("Saturation : "), false);
+            if(lit_sel == 1 && oled_flashing) {
+                oled_write_P(PSTR("   "), false);
+            }
+            else {
+                snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_sat());
+                oled_write(buffer, false);
+            }
+            oled_set_cursor(0, 4);
+            if(lit_sel == 2){
+                oled_write_P(PSTR("> "), false);
+            }else{
+                oled_write_P(PSTR("  "), false);
+            }
+            oled_write_P(PSTR("Brightness : "), false);
+            if(lit_sel == 2 && oled_flashing) {
+                oled_write_P(PSTR("   "), false);
+            }
+            else {
+                snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_val());
+                oled_write(buffer, false);
+            }
+            oled_set_cursor(0, 5);
+            oled_write_P(PSTR("---------------------"), false);
+            oled_set_cursor(0, 6);
+            oled_write_P(PSTR("Values scaled : 0-255"), false);
+            oled_set_cursor(0, 7);
+            oled_write_P(PSTR("Brightness Cap: "), false);
+            uint8_t max_brightness = RGB_MATRIX_MAXIMUM_BRIGHTNESS;
+            snprintf(buffer, sizeof(buffer), "%d", max_brightness);
             oled_write(buffer, false);
-        }
-        oled_set_cursor(0, 3);
-        if(lit_sel == 1){
-            oled_write_P(PSTR("> "), false);
         }else{
-            oled_write_P(PSTR("  "), false);
+            oled_set_cursor(0, 0);
+            oled_write_P(PSTR("---------------------"), false);
+            oled_set_cursor(0, 1);
+            oled_write_P(PSTR("  Rotary Encoder 1   "), false);
+            oled_set_cursor(0, 2);
+            if (!re_chg1 || !oled_flashing) {
+                re_oled(re_sel1);
+            }
+            oled_set_cursor(0, 3);
+            oled_write_P(PSTR("---------------------"), false);
+            oled_set_cursor(0, 4);
+            oled_write_P(PSTR("  Rotary Encoder 2   "), false);
+            oled_set_cursor(0, 5);
+            if (!re_chg2 || !oled_flashing) {
+                re_oled(re_sel2);
+            }
+            oled_set_cursor(0, 6);
+            oled_write_P(PSTR("---------------------"), false);
         }
-        oled_write_P(PSTR("Saturation : "), false);
-        if(lit_sel == 1 && oled_flashing) {
-            oled_write_P(PSTR("   "), false);
-        }
-        else {
-            snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_sat());
-            oled_write(buffer, false);
-        }
-        oled_set_cursor(0, 4);
-        if(lit_sel == 2){
-            oled_write_P(PSTR("> "), false);
-        }else{
-            oled_write_P(PSTR("  "), false);
-        }
-        oled_write_P(PSTR("Brightness : "), false);
-        if(lit_sel == 2 && oled_flashing) {
-            oled_write_P(PSTR("   "), false);
-        }
-        else {
-            snprintf(buffer, sizeof(buffer), "%d", rgb_matrix_get_val());
-            oled_write(buffer, false);
-        }
-        oled_set_cursor(0, 5);
-        oled_write_P(PSTR("---------------------"), false);
-        oled_set_cursor(0, 6);
-        oled_write_P(PSTR("Values scaled : 0-255"), false);
-        oled_set_cursor(0, 7);
-        oled_write_P(PSTR("Brightness Cap: "), false);
-        uint8_t max_brightness = RGB_MATRIX_MAXIMUM_BRIGHTNESS;
-        snprintf(buffer, sizeof(buffer), "%d", max_brightness);
-        oled_write(buffer, false);
-    }else{
-        oled_set_cursor(0, 0);
-        oled_write_P(PSTR("---------------------"), false);
-        oled_set_cursor(0, 1);
-        oled_write_P(PSTR("  Rotary Encoder 1   "), false);
-        oled_set_cursor(0, 2);
-        if (!re_chg1 || !oled_flashing) {
-            re_oled(re_sel1);
-        }
-        oled_set_cursor(0, 3);
-        oled_write_P(PSTR("---------------------"), false);
-        oled_set_cursor(0, 4);
-        oled_write_P(PSTR("  Rotary Encoder 2   "), false);
-        oled_set_cursor(0, 5);
-        if (!re_chg2 || !oled_flashing) {
-            re_oled(re_sel2);
-        }
-        oled_set_cursor(0, 6);
-        oled_write_P(PSTR("---------------------"), false);
     }
     return false;
 }
@@ -567,7 +604,7 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         if (rgb_matrix_get_sat()<128){
             newSat = 255;
         }else{
-            newSat = 32;
+            newSat = 16;
         }
         if (is_keyboard_left()) {
             for (uint8_t i = 1; i < 7; i++) {
