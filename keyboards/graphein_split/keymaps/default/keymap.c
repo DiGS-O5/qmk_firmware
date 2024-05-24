@@ -7,12 +7,13 @@
 #include "transactions.h"
 #include "custom_rgb_matrix.h"
 
-uint8_t re_sel1 = 0;
-uint8_t re_sel2 = 1;
-uint8_t lit_sel = 0;
-bool re_chg1 = false;
-bool re_chg2 = false;
-bool lit_chg = false;
+static uint8_t oled_page = 0;
+static uint8_t re_sel1 = 0;
+static uint8_t re_sel2 = 1;
+static uint8_t lit_sel = 0;
+static uint8_t help_sel = 0;
+static bool re_chg1 = false;
+static bool re_chg2 = false;
 static uint16_t oled_init_timer = 0;
 static uint16_t oled_flashing_timer;
 static bool oled_init_timer_active = true;
@@ -64,12 +65,13 @@ const key_override_t** key_overrides = (const key_override_t * []){
 };
 
 typedef struct _master_to_slave_t {
+    uint8_t oled_page :2;
     uint8_t re_sel1 :3;
     uint8_t re_sel2 :3;
     bool    re_chg1 :1;
     bool    re_chg2 :1;
+    uint8_t help_sel :2;
     uint8_t lit_sel :2;
-    bool    lit_chg :1;
 } master_to_slave_t;
 
 master_to_slave_t master_to_slave;
@@ -94,6 +96,7 @@ enum cc_keycodes {
     CC_RE2,
     CC_SAVEE,
     CC_RSTEE,
+    CC_HELP,
     CC_CHGLIT
 };
 
@@ -137,7 +140,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, _______, _______, _______, _______, _______,
         KC_F12,  KC_F6,   KC_F7,   KC_F8,   KC_F9,   KC_F10,  _______,
         _______, _______, _______, _______, _______, _______, _______,
-        _______, _______, _______, _______, _______, _______, _______,
+        _______, CC_HELP, _______, _______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______, _______,
         _______, _______,CC_CHGLIT,_______, _______, _______,
         CC_RE1,  CC_RE2,  CC_RE1,  CC_RE2
@@ -184,6 +187,124 @@ led_config_t g_led_config = { {
 void matrix_init_user(void) {
     setPinOutput(28);
     writePinHigh(28);
+}
+
+void eeconfig_init_user(void) {
+    user_config.re_config1 = 0;
+    user_config.re_config2 = 1;
+}
+
+bool process_record_user(uint16_t keycode, keyrecord_t* record) {
+    switch (keycode) {
+    case CC_RE1:
+        if (record->event.pressed) {
+            if(oled_page == 0){
+                re_chg1 = !re_chg1;
+                if(!re_chg1){
+                     user_config.re_config1 = re_sel1;
+                }
+            }
+        }
+        return false;
+        break;
+    case CC_RE2:
+        if (record->event.pressed) {
+            if(oled_page == 0){
+                re_chg2 = !re_chg2;
+                if(!re_chg2){
+                    user_config.re_config2 = re_sel2;
+                }
+            }
+        }
+        return false;
+        break;
+    case CC_SAVEE:
+        if (record->event.pressed) {
+            eeconfig_update_user(user_config.raw);
+            eeconfig_update_rgb_matrix();
+        }
+        return false;
+        break;
+    case CC_RSTEE:
+        if (record->event.pressed) {
+            eeconfig_init_user();
+            eeconfig_update_user(user_config.raw);
+            eeconfig_update_rgb_matrix_default();
+        }
+        return false;
+        break;
+    case CC_HELP:
+        if(record->event.pressed) {
+            if(oled_page == 0){
+                oled_page = 1;
+                help_sel = 0;
+            }else if(oled_page == 1){
+                oled_page = 0;
+            }
+        }
+        return false;
+        break;
+    case CC_CHGLIT:
+        if (record->event.pressed) {
+            if(oled_page == 0){
+                oled_page = 2;
+                lit_sel = 0;
+            }else if(oled_page == 2){
+                oled_page = 0;
+            }
+        }
+        return false;
+        break;
+    default:
+        return true;
+    }
+}
+void kb_sync_a_slave_handler(uint8_t in_buflen, const void* in_data, uint8_t out_buflen, void* out_data) {
+    const master_to_slave_t *m2s = (const master_to_slave_t*)in_data;
+    oled_page = m2s -> oled_page;
+    re_sel1 = m2s -> re_sel1;
+    re_sel2 = m2s -> re_sel2;
+    re_chg1 = m2s -> re_chg1;
+    re_chg2 = m2s -> re_chg2;
+    help_sel = m2s -> help_sel; 
+    lit_sel = m2s -> lit_sel;
+}
+
+void keyboard_post_init_user(void) {
+  debug_enable=true;
+  debug_matrix=true;
+  //debug_keyboard=true;
+  //debug_mouse=true;
+
+  user_config.raw = eeconfig_read_user();
+  re_sel1 = user_config.re_config1;
+  re_sel2 = user_config.re_config2;
+  transaction_register_rpc(KEYBOARD_SYNC, kb_sync_a_slave_handler);
+}
+
+void housekeeping_task_user(void) {
+    if (is_keyboard_master()) {
+
+        bool needs_sync = false;
+        static uint16_t last_sync = false;
+
+        if (timer_elapsed32(last_sync) > 250) {
+            needs_sync = true;
+        }
+
+        if (needs_sync) {
+             master_to_slave.oled_page = oled_page;
+             master_to_slave.re_sel1 = re_sel1;
+             master_to_slave.re_sel2 = re_sel2;
+             master_to_slave.re_chg1 = re_chg1;
+             master_to_slave.re_chg2 = re_chg2;
+             master_to_slave.help_sel = help_sel;
+             master_to_slave.lit_sel = lit_sel;
+            if (transaction_rpc_send(KEYBOARD_SYNC, sizeof(master_to_slave_t), &master_to_slave)) {
+                last_sync = timer_read32();
+            }
+        }
+    }
 }
 
 void re_func(uint8_t index, bool clockwise) {
@@ -277,112 +398,27 @@ void re_func(uint8_t index, bool clockwise) {
     }
 }
 
-bool process_record_user(uint16_t keycode, keyrecord_t* record) {
-    switch (keycode) {
-    case CC_RE1:
-        if (record->event.pressed) {
-            if(!lit_chg){
-                re_chg1 = !re_chg1;
-                if(!re_chg1){
-                     user_config.re_config1 = re_sel1;
-                }
-            }
-        }
-        return false;
-        break;
-    case CC_RE2:
-        if (record->event.pressed) {
-            if(!lit_chg){
-                re_chg2 = !re_chg2;
-                if(!re_chg2){
-                    user_config.re_config2 = re_sel2;
-                }
-            }
-        }
-        return false;
-        break;
-    case CC_SAVEE:
-        if (record->event.pressed) {
-            eeconfig_update_user(user_config.raw);
-            eeconfig_update_rgb_matrix();
-        }
-        return false;
-        break;
-    case CC_RSTEE:
-        if (record->event.pressed) {
-            eeconfig_update_rgb_matrix_default();
-        }
-        return false;
-        break;
-    case CC_CHGLIT:
-        if (record->event.pressed) {
-             lit_chg = !lit_chg;
-             if(lit_chg){
-                 lit_sel = 0;
-             }
-        }
-        return false;
-        break;
-    default:
-        return true;
-    }
-}
-void kb_sync_a_slave_handler(uint8_t in_buflen, const void* in_data, uint8_t out_buflen, void* out_data) {
-    const master_to_slave_t *m2s = (const master_to_slave_t*)in_data;
-    re_sel1 = m2s -> re_sel1;
-    re_sel2 = m2s -> re_sel2;
-    re_chg1 = m2s -> re_chg1;
-    re_chg2 = m2s -> re_chg2;
-    lit_sel = m2s -> lit_sel;
-    lit_chg = m2s -> lit_chg;
-}
-
-void keyboard_post_init_user(void) {
-  debug_enable=true;
-  debug_matrix=true;
-  //debug_keyboard=true;
-  //debug_mouse=true;
-
-  user_config.raw = eeconfig_read_user();
-  re_sel1 = user_config.re_config1;
-  re_sel2 = user_config.re_config2;
-  transaction_register_rpc(KEYBOARD_SYNC, kb_sync_a_slave_handler);
-}
-
-void housekeeping_task_user(void) {
-    if (is_keyboard_master()) {
-
-        bool needs_sync = false;
-        static uint16_t last_sync = false;
-
-        if (timer_elapsed32(last_sync) > 250) {
-            needs_sync = true;
-        }
-
-        if (needs_sync) {
-             master_to_slave.re_sel1 = re_sel1;
-             master_to_slave.re_sel2 = re_sel2;
-             master_to_slave.re_chg1 = re_chg1;
-             master_to_slave.re_chg2 = re_chg2;
-             master_to_slave.lit_sel = lit_sel;
-             master_to_slave.lit_chg = lit_chg;
-            if (transaction_rpc_send(KEYBOARD_SYNC, sizeof(master_to_slave_t), &master_to_slave)) {
-                last_sync = timer_read32();
-            }
-        }
-    }
-}
-
 bool encoder_update_user(uint8_t index, bool clockwise) {
     if (index == 0 || index ==2) {
-        if (re_chg1) {
-            if (clockwise) {
-                re_sel1 = (re_sel1 + 1) % 8;
+        if(oled_page == 0){
+            if (re_chg1) {
+                if (clockwise) {
+                    re_sel1 = (re_sel1 + 1) % 8;
+                }
+                else {
+                    re_sel1 = (re_sel1 + 7) % 8;
+                }
+            }else {
+                re_func(re_sel1, clockwise);
+            }
+        }else if(oled_page == 1){
+            if(clockwise) {
+                help_sel = (help_sel < 3) ? (help_sel + 1) : 3;
             }
             else {
-                re_sel1 = (re_sel1 + 7) % 8;
+                help_sel = (help_sel > 0) ? (help_sel - 1) : 0;
             }
-        }else if(lit_chg){
+        }else if(oled_page == 2){
             if (clockwise) {
                 lit_sel = (lit_sel + 1) % 3;
             }
@@ -390,20 +426,20 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
                 lit_sel = (lit_sel + 2) % 3;
             }
         }
-        else {
-            re_func(re_sel1, clockwise);
-        }
     }
     else if (index == 1 || index ==3) {
-
-        if (re_chg2) {
-            if (clockwise) {
-                re_sel2 = (re_sel2 + 1) % 8;
+        if(oled_page == 0){
+            if (re_chg2) {
+                if (clockwise) {
+                    re_sel2 = (re_sel2 + 1) % 8;
+                }
+                else {
+                    re_sel2 = (re_sel2 + 7) % 8;
+                }
+            }else {
+                re_func(re_sel2, clockwise);
             }
-            else {
-                re_sel2 = (re_sel2 + 7) % 8;
-            }
-        }else if(lit_chg){
+        }else if(oled_page == 2){
             if (clockwise) {
                 switch(lit_sel){
                     case 0:
@@ -430,9 +466,6 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
                         break;
                 }
             }
-        }
-        else {
-            re_func(re_sel2, clockwise);
         }
     }
     return false;
@@ -488,6 +521,13 @@ void oled_render_boot(bool bootloader) {
     render_logo();
 }
 
+/*
+oled page
+0 : default
+1 : help
+2 : rgb setting
+*/
+
 bool oled_task_user(void) {
     if(oled_init_timer_active){
         oled_clear();
@@ -512,7 +552,83 @@ bool oled_task_user(void) {
             oled_flashing = !oled_flashing;
         }
         oled_clear();
-        if (lit_chg){
+        if (oled_page == 0){
+            oled_set_cursor(0, 0);
+            oled_write_P(PSTR("---------------------"), false);
+            oled_set_cursor(0, 1);
+            oled_write_P(PSTR("  Rotary Encoder 1   "), false);
+            oled_set_cursor(0, 2);
+            if (!re_chg1 || !oled_flashing) {
+                re_oled(re_sel1);
+            }
+            oled_set_cursor(0, 3);
+            oled_write_P(PSTR("---------------------"), false);
+            oled_set_cursor(0, 4);
+            oled_write_P(PSTR("  Rotary Encoder 2   "), false);
+            oled_set_cursor(0, 5);
+            if (!re_chg2 || !oled_flashing) {
+                re_oled(re_sel2);
+            }
+            oled_set_cursor(0, 6);
+            oled_write_P(PSTR("---------------------"), false);
+        }else if (oled_page == 1){
+            oled_set_cursor(0, 0);
+            oled_write_P(PSTR("  Usage & Customize  "), false);
+            oled_set_cursor(0, 1);
+            oled_write_P(PSTR("---------------------"), false);
+            switch (help_sel) {
+                case 0:
+                    oled_set_cursor(0, 2);
+                    oled_write_P(PSTR("On rotary encoder :"), false);
+                    oled_set_cursor(0, 3);
+                    oled_write_P(PSTR("The top RE is RE1,"), false);
+                    oled_set_cursor(0, 4);
+                    oled_write_P(PSTR("the bottom RE is RE2."), false);
+                    oled_set_cursor(0, 6);
+                    oled_write_P(PSTR("Rotating RE1 switches"), false);
+                    oled_set_cursor(0, 7);
+                    oled_write_P(PSTR("pages in the help."), false);
+                    break;
+                case 1:
+                    oled_set_cursor(0, 2);
+                    oled_write_P(PSTR("Press \"Fn + H\" to"), false);
+                    oled_set_cursor(0, 3);
+                    oled_write_P(PSTR("close this help."), false);
+                    oled_set_cursor(0, 5);
+                    oled_write_P(PSTR("The Lighting key to "), false);
+                    oled_set_cursor(0, 6);
+                    oled_write_P(PSTR("the left of the R-Alt"), false);
+                    oled_set_cursor(0, 7);
+                    oled_write_P(PSTR("changes light effect."), false);
+                    break;
+                case 2:
+                    oled_set_cursor(0, 2);
+                    oled_write_P(PSTR("\"Fn + Lighting key\""), false);
+                    oled_set_cursor(0, 3);
+                    oled_write_P(PSTR("Use RE1/RE2 to adjust"), false);
+                    oled_set_cursor(0, 4);
+                    oled_write_P(PSTR("HSB(HSV) values to"), false);
+                    oled_set_cursor(0, 5);
+                    oled_write_P(PSTR("change the lighting"), false);
+                    oled_set_cursor(0, 6);
+                    oled_write_P(PSTR("color."), false);
+                    break;
+                case 3:
+                    oled_set_cursor(0, 2);
+                    oled_write_P(PSTR("\"Fn + H\""), false);
+                    oled_set_cursor(0, 3);
+                    oled_write_P(PSTR("Open / Close the help"), false);
+                    oled_set_cursor(0, 4);
+                    oled_write_P(PSTR("\"Fn + S\""), false);
+                    oled_set_cursor(0, 5);
+                    oled_write_P(PSTR("Save changed settings"), false);
+                    oled_set_cursor(0, 6);
+                    oled_write_P(PSTR("\"Fn + R\""), false);
+                    oled_set_cursor(0, 7);
+                    oled_write_P(PSTR("Reset all settings"), false);
+                    break;
+            }
+        }else if (oled_page == 2){
             char buffer[4];
             oled_set_cursor(0, 0);
             oled_write_P(PSTR("Sel : RE1 / Chg : RE2"), false);
@@ -569,25 +685,6 @@ bool oled_task_user(void) {
             uint8_t max_brightness = RGB_MATRIX_MAXIMUM_BRIGHTNESS;
             snprintf(buffer, sizeof(buffer), "%d", max_brightness);
             oled_write(buffer, false);
-        }else{
-            oled_set_cursor(0, 0);
-            oled_write_P(PSTR("---------------------"), false);
-            oled_set_cursor(0, 1);
-            oled_write_P(PSTR("  Rotary Encoder 1   "), false);
-            oled_set_cursor(0, 2);
-            if (!re_chg1 || !oled_flashing) {
-                re_oled(re_sel1);
-            }
-            oled_set_cursor(0, 3);
-            oled_write_P(PSTR("---------------------"), false);
-            oled_set_cursor(0, 4);
-            oled_write_P(PSTR("  Rotary Encoder 2   "), false);
-            oled_set_cursor(0, 5);
-            if (!re_chg2 || !oled_flashing) {
-                re_oled(re_sel2);
-            }
-            oled_set_cursor(0, 6);
-            oled_write_P(PSTR("---------------------"), false);
         }
     }
     return false;
@@ -617,6 +714,7 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
             for (uint8_t i = 35; i < 41; i++) {
                 set_color(i, rgb_matrix_get_hue(), newSat, rgb_matrix_get_val());
             }
+            set_color(53, rgb_matrix_get_hue(), newSat, rgb_matrix_get_val());
             set_color(65, rgb_matrix_get_hue(), newSat, rgb_matrix_get_val());
         }
         break;
